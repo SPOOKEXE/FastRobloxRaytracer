@@ -30,8 +30,12 @@ function Canvas.New( container : ImageLabel, canvasSize : Vector2, background : 
 	image:Resize( canvasSize )
 	image:WritePixels( Vector2.zero, canvasSize, CreatePixelSequence(canvasSize.X * canvasSize.Y, background) )
 	image.Parent = container
-	local self = { Container = container, CanvasSize = canvasSize, EditableImage = image, BackgroundFColor = background }
-	return setmetatable(self, Canvas)
+	return setmetatable({
+		Container = container,
+		CanvasSize = canvasSize,
+		EditableImage = image,
+		BackgroundFColor = background
+	}, Canvas)
 end
 
 function Canvas:WritePixelFormat( topLeft : Vector2, size : Vector2, pixels : { {number} } )
@@ -56,14 +60,12 @@ end
 
 function Canvas:ResizeCanvas( new_size : Vector2 )
 	assert( new_size.X <= 1024 and new_size.Y <= 1024, 'Max size reached, cannot go larger than 1024x1024.' )
-	local newImage = Instance.new('EditableImage')
-	newImage:Resize( new_size )
-	newImage:WritePixels( Vector2.zero, new_size, CreatePixelSequence( new_size.X * new_size.Y, self.BackgroundFColor ) )
-	local originalImage = self.EditableImage
-	local upperBounds = Vector2.new(math.min(new_size.X, originalImage.Size.X), math.min(new_size.Y, originalImage.Size.Y))
-	originalImage:Crop( Vector2.zero, upperBounds )
-	newImage:DrawImage(Vector2.zero, originalImage, Enum.ImageCombineType.Overwrite)
-	self.EditableImage = newImage
+	local oldImage : EditableImage = self.EditableImage:Clone()
+	local upperBounds = Vector2.new(math.min(new_size.X, oldImage.Size.X), math.min(new_size.Y, oldImage.Size.Y))
+	oldImage:Crop( Vector2.zero, upperBounds )
+	self.EditableImage:Resize( new_size )
+	self.EditableImage:WritePixels( Vector2.zero, new_size, CreatePixelSequence( new_size.X * new_size.Y, self.BackgroundFColor ) )
+	self.EditableImage:DrawImage( Vector2.zero, oldImage, Enum.ImageCombineType.Overwrite )
 end
 
 -- // Module // --

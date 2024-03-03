@@ -37,7 +37,6 @@ function Module.Init()
 	PixelsScreenGui.Name = 'PixelsScreen'
 	PixelsScreenGui.ResetOnSpawn = false
 	PixelsScreenGui.IgnoreGuiInset = true
-	PixelsScreenGui.Enabled = false
 	PixelsScreenGui.Parent = LocalPlayer.PlayerGui
 
 	local ImageContainer = Instance.new('ImageLabel')
@@ -58,13 +57,17 @@ function Module.Init()
 		local NewAbsoluteSize = CanvasImageModule.ScaleSizeToBounds(PixelsScreenGui.AbsoluteSize, MaxBounds)
 		Canvas:ResizeCanvas(NewAbsoluteSize)
 	end)
+
+	-- PixelsScreenGui.Enabled = false
 end
 
 function Module.Start()
 
-	local config = {
-		MaxDepth = 3,
-	}
+	local config : RaytracerCore.RaytraceConfig = RaytracerCore.CreateConfig({
+		MaxDepth = 2,
+		NRaySplits = 10,
+		AmbientColor = Color3.fromRGB(17, 133, 149)
+	})
 
 	UserInputService.InputBegan:Connect(function(inputObject, _)
 		if inputObject.KeyCode == Enum.KeyCode.V then
