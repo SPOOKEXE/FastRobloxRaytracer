@@ -18,15 +18,16 @@ local IsBusyRendering = false
 -- // Module // --
 local Module = {}
 
-function Module.Render( canvas : CanvasImageModule.Canvas, config : RaytracerCore.RaytraceConfig )
+function Module.Render( camera : Camera, canvas : CanvasImageModule.Canvas, config : RaytracerCore.RaytraceConfig )
 	if IsBusyRendering then
 		return
 	end
 	IsBusyRendering = true
 
 	print('Starting Raytrace:')
+	workspace.Terrain:ClearAllChildren() -- debug visuals
 	local t = os.clock()
-	RaytracerCore.Render( CurrentCamera, canvas, config )
+	RaytracerCore.Render( camera, canvas, config )
 	print('Duration:', os.clock() - t)
 
 	IsBusyRendering = false
@@ -58,20 +59,29 @@ function Module.Init()
 		Canvas:ResizeCanvas(NewAbsoluteSize)
 	end)
 
-	-- PixelsScreenGui.Enabled = false
+	PixelsScreenGui.Enabled = false
 end
 
 function Module.Start()
 
 	local config : RaytracerCore.RaytraceConfig = RaytracerCore.CreateConfig({
-		MaxDepth = 2,
-		NRaySplits = 10,
-		AmbientColor = Color3.fromRGB(17, 133, 149)
+		MaxDepth = 1,
+		NRaySplits = 5,
+		AmbientColor = Color3.fromRGB(17, 133, 149),
+		RaycastParams = nil,
+		MaxRaysPerUpdate = 50,
 	})
 
 	UserInputService.InputBegan:Connect(function(inputObject, _)
 		if inputObject.KeyCode == Enum.KeyCode.V then
-			Module.Render(Canvas, config)
+			Module.Render(workspace.CurrentCamera, Canvas, config)
+		elseif inputObject.KeyCode == Enum.KeyCode.B then
+			local TempCamera = Instance.new('Camera')
+			TempCamera.CFrame = workspace.SampleHouseScene.CFrame
+			Module.Render(TempCamera, Canvas, config)
+			TempCamera:Destroy()
+		elseif inputObject.KeyCode == Enum.KeyCode.Q then
+			PixelsScreenGui.Enabled = not PixelsScreenGui.Enabled
 		end
 	end)
 
