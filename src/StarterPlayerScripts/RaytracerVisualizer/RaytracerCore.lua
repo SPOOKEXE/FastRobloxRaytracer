@@ -22,6 +22,7 @@ export type RayData = {
 
 export type RayFrontier = {
 	IsCompleted : boolean,
+	RootRay : RayData,
 	OngoingRays : { RayData },
 	RayMap : { [string] : RayData },
 	RayHeirarchyForward : { [string] : {string} }, -- { sourceUUID : {childrenUUID} }
@@ -37,6 +38,51 @@ local function SetProperties( Parent, Properties )
 	return Parent
 end
 
+local function GetConedDirection(axis: Vector3, height_angle: number, circle_radian : number) : CFrame
+	local cosAngle = math.cos(height_angle)
+	local z = 1 - (1 - cosAngle)
+	local r = math.sqrt(1 - z*z)
+	local x = r * math.cos(circle_radian)
+	local y = r * math.sin(circle_radian)
+	local vec = Vector3.new(x, y, z)
+	if axis.Z > 0.9999 then
+		return vec.Unit
+	elseif axis.Z < -0.9999 then
+		return -vec.Unit
+	end
+	local orth = Vector3.new(0, 0, 1):Cross(axis)
+	local rot = math.acos(axis:Dot(Vector3.zAxis))
+	return (CFrame.fromAxisAngle(orth, rot) * vec).Unit
+end
+
+local function CreateRayData( frontier : RayFrontier, origin : Vector3, direction : Vector3, color : Color3, parent : RayData? ) : RayData
+	local newRayData = {
+		UUID = tostring(GLOBAL_COUNTER),
+		Parent = parent and parent.UUID or false,
+		Origin = origin,
+		Direction = direction,
+		WeightedColor = color,
+		Depth = parent and (parent.Depth + 1) or 1,
+	}
+
+	local endPosition = origin + (direction * 50)
+	VisualizerModule.Beam( origin, endPosition, 20, { Color = ColorSequence.new( Color3.new(0, 0.7, 0) ) } )
+
+	GLOBAL_COUNTER += 1
+
+	frontier.RayMap[ newRayData.UUID ] = newRayData
+	if newRayData.Parent then
+		frontier.RayHeirarchyBackward[ newRayData.UUID ] = newRayData.Parent
+		if not frontier.RayHeirarchyForward[ newRayData.Parent ] then
+			frontier.RayHeirarchyForward[ newRayData.Parent ] = {}
+		end
+		table.insert( frontier.RayHeirarchyForward[ newRayData.Parent ], newRayData.UUID )
+	end
+
+	table.insert( frontier.OngoingRays, newRayData )
+	return newRayData
+end
+
 -- // Module // --
 local Module = {}
 
@@ -47,18 +93,16 @@ function Module.CreateConfig( properties : { [string] : any } ) : RaytraceConfig
 	return SetProperties( {
 		MaxDepth = 3, -- what is the max depth of a ray
 		RayLength = 100, -- distance for raycasting
-		NRaySplits = 5, -- how many rays are generated on a new reflection
+		NRaySplits = 4, -- how many rays are generated on a new reflection
 	}, properties )
 end
 
 function Module.ResolveColorFromFrontier( frontier : RayFrontier ) : Color3
 	-- return Color3.fromRGB( math.random(255), math.random(255), math.random(255) )
-	error('NotImplemented')
+	return frontier.RootRay.WeightedColor
 end
 
 function Module.ResolveRay( frontier : RayFrontier, rayData : RayData, config : RaytraceConfig )
-	error('NotImplemented')
-
 	local rayResult : RaycastResult = workspace:Raycast( rayData.Origin, rayData.Direction * config.RayLength, Module.RAYCAST_PARAMS )
 	if not rayResult then
 		-- get ambient color
@@ -66,49 +110,32 @@ function Module.ResolveRay( frontier : RayFrontier, rayData : RayData, config : 
 		return
 	end
 
-	if rayData.Depth + 1 <= config.MaxDepth then
-		-- append new rays
-
-		for _ = 1, config.NRaySplits do
-			local reflectedRayDirection = GetReflectedRay( rayData.Direction, rayResult.Normal )
-			local randomizeDirection = RandomizeDirection( reflectedRayDirection, 40 ) -- n degree randomize
-
-			local objectColor = nil
-			if rayResult.Instance == workspace.Terrain then
-				objectColor = workspace.Terrain:GetMaterialColor(rayResult.Material)
-			else
-				objectColor = rayResult.Instance.Color
-			end
-
-			local newRayData = {
-				UUID = tostring(GLOBAL_COUNTER),
-				Parent = rayData.UUID,
-				Origin = rayResult.Position,
-				Direction = randomizeDirection,
-				WeightedColor = objectColor,
-				Depth = rayData.Depth + 1,
-			}
-
-			GLOBAL_COUNTER += 1
-			frontier.RayMap[ newRayData.UUID ] = newRayData
-			frontier.RayHeirarchyBackward[ newRayData.UUID ] = newRayData.Parent
-			if not frontier.RayHeirarchyForward[ newRayData.Parent ] then
-				frontier.RayHeirarchyForward[ newRayData.Parent ] = {}
-			end
-			table.insert( frontier.RayHeirarchyForward[ newRayData.Parent ], newRayData.UUID )
-			table.insert( frontier.OngoingRays, newRayData )
-		end
-
+	local objectColor : Color3 = nil
+	if rayResult.Instance == workspace.Terrain then
+		objectColor = workspace.Terrain:GetMaterialColor(rayResult.Material)
+	else
+		objectColor = rayResult.Instance.Color
 	end
+	objectColor = rayData.WeightedColor:Lerp(objectColor, 0.6) -- lerp towards the object's color
 
+	-- append new rays
+	if (rayData.Depth + 1) <= config.MaxDepth then
+		-- circular reflection
+		local radianStep : number = (math.pi * 2) / config.NRaySplits
+		for index = 1, config.NRaySplits do
+			local sphericalDirection : Vector3 = GetConedDirection(rayResult.Normal, 45, (index-1) * radianStep)
+			CreateRayData( frontier, rayResult.Position, sphericalDirection, objectColor, rayData )
+		end
+		-- 90 degree reflection
+		CreateRayData( frontier, rayResult.Position, rayResult.Normal, objectColor, rayData )
+	end
 end
 
 function Module.UpdateFrontier( frontier : RayFrontier, config : RaytraceConfig )
-	--[[
-		for _ = 1, #frontier.OngoingRays do
-			Module.ResolveRay( frontier, table.remove( frontier.OngoingRays, 1 ), config )
-		end
-	]]
+	for _ = 1, #frontier.OngoingRays do
+		local Data : RayData = table.remove( frontier.OngoingRays, 1 )
+		Module.ResolveRay( frontier, Data, config )
+	end
 	frontier.IsCompleted = true
 end
 
@@ -119,21 +146,10 @@ function Module.CreateFrontier( position2D : Vector2, origin : Vector3, directio
 		RayMap = {},
 		RayHeirarchyForward = {},
 		RayHeirarchyBackward = {},
+		RootRay = nil,
 	}
-
-	local rootRay = {
-		UUID = tostring(GLOBAL_COUNTER),
-		Parent = false,
-		Origin = origin,
-		Direction = direction.Unit,
-		WeightedColor = Color3.fromRGB(100, 100, 100),
-		Depth = 0,
-	}
-
-	GLOBAL_COUNTER += 1
-	frontier.RayMap[ rootRay.UUID ] = rootRay
-
-	Module.ResolveRay( frontier, rootRay, config )
+	local rootRay : RayData = CreateRayData( frontier, origin, direction.Unit, config.AmbientColor, nil )
+	frontier.RootRay = rootRay
 	return frontier
 end
 
@@ -149,11 +165,11 @@ function Module.Render( Camera : Camera, canvas : CanvasImageModule.Canvas, conf
 	for x = 0, (canvas.EditableImage.Size.X - 1), skipToXth do
 		for y = 0, (canvas.EditableImage.Size.Y - 1), skipToYth do
 			local ray = Camera:ViewportPointToRay(x * offsetStepX, y * offsetStepY)
-			local frontier = Module.CreateFrontier(Vector2.new(x, y), ray.Origin, ray.Direction, config)
+			local frontier = Module.CreateFrontier(Vector2.new(x, y), ray.Origin, ray.Direction.Unit, config)
 			table.insert(frontiers, frontier)
 			-- visualize
-			-- local finish = ray.Origin + (ray.Direction * 5)
-			-- VisualizerModule.Beam( ray.Origin, finish, 20, { Color = ColorSequence.new( Color3.new(0, 0.7, 0) ) } )
+			local finish = ray.Origin + (ray.Direction * 10)
+			VisualizerModule.Beam( ray.Origin, finish, 20, { Color = ColorSequence.new( Color3.new(0, 0.7, 0) ) } )
 		end
 	end
 
@@ -184,32 +200,31 @@ function Module.Render( Camera : Camera, canvas : CanvasImageModule.Canvas, conf
 	-- local temporaryImage = Instance.new('EditableImage')
 	-- temporaryImage:Resize( canvas.EditableImage.Size )
 
-	local pixels : {number} = {}
-	for x = 1, canvas.EditableImage.Size.X do
-		for y = 1, canvas.EditableImage.Size.Y do
+	--[==[
+		local pixels : {number} = {}
+		for x = 1, canvas.EditableImage.Size.X do
+			for y = 1, canvas.EditableImage.Size.Y do
 
-			local xIndex = math.round(x / skipToXth) + 1
-			local yIndex = math.round(y / skipToYth) + 1
-			local frontier = frontiers[ xIndex * yIndex ]
-			local frontierColor = Module.ResolveColorFromFrontier( frontier )
-			table.insert(pixels, frontierColor.R)
-			table.insert(pixels, frontierColor.G)
-			table.insert(pixels, frontierColor.B)
-			table.insert(pixels, 1)
-			if (xIndex % 30) == 0 and (yIndex % 30) == 0 then
-				print(x, y, frontierColor)
-			end
-
-			--[[
-				table.insert(pixels, math.random(255)/255)
-				table.insert(pixels, math.random(255)/255)
-				table.insert(pixels, math.random(255)/255)
+				local xIndex = math.round(x / skipToXth) + 1
+				local yIndex = math.round(y / skipToYth) + 1
+				local frontier = frontiers[ xIndex * yIndex ] or frontiers[1]
+				local frontierColor = Module.ResolveColorFromFrontier( frontier )
+				table.insert(pixels, frontierColor.R)
+				table.insert(pixels, frontierColor.G)
+				table.insert(pixels, frontierColor.B)
 				table.insert(pixels, 1)
-			]]
-		end
-	end
 
-	canvas.EditableImage:WritePixels( Vector2.zero, canvas.EditableImage.Size, pixels )
+				--[[
+					table.insert(pixels, math.random(255)/255)
+					table.insert(pixels, math.random(255)/255)
+					table.insert(pixels, math.random(255)/255)
+					table.insert(pixels, 1)
+				]]
+			end
+		end
+
+		canvas.EditableImage:WritePixels( Vector2.zero, canvas.EditableImage.Size, pixels )
+	]==]
 
 	-- print(#pixels, EditableImage.Size.X * EditableImage.Size.Y * 4)
 	-- temporaryImage:WritePixels(Vector2.zero, canvas.EditableImage.Size, pixels)
