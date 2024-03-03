@@ -85,15 +85,19 @@ function Module.Render( Camera : Camera, EditableImage : EditableImage, config :
 		end
 	end
 
-	local pixels : {number} = {}
-	for x = 0, EditableImage.Size.X - 1, skipX do
-		for y = 0, EditableImage.Size.Y - 1, skipY do
-			local frontier = frontiers[(x+1)*(y+1)]
-			local color = Module.ResolveColorFromFrontier( frontier )
-			table.insert(pixels, { color.R, color.G, color.B, 1 })
+	-- TODO: keep updating frontiers
+
+	--[[
+		local pixels : {number} = {}
+		for x = 0, EditableImage.Size.X - 1, skipX do
+			for y = 0, EditableImage.Size.Y - 1, skipY do
+				local frontier = frontiers[(x+1)*(y+1)]
+				local color = Module.ResolveColorFromFrontier( frontier )
+				table.insert(pixels, { color.R, color.G, color.B, 1 })
+			end
 		end
-	end
-	EditableImage:WritePixels(Vector2.zero, EditableImage.Size, pixels)
+		EditableImage:WritePixels(Vector2.zero, EditableImage.Size, pixels)
+	]]
 
 end
 
